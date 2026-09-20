@@ -1,0 +1,28 @@
+name: Repoint v0.1.0 to finalized source tree
+
+on:
+  push:
+    paths:
+      - '.github/workflows/repoint-v0.1.0.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Recreate release at finalized commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gh release delete v0.1.0 --cleanup-tag -y || true
+          gh release create v0.1.0 \
+            --target f7815b482a6f69cf0378a8bc84d11cd935e6edab \
+            --title "v0.1.0 — Manual 4-GPU verified build" \
+            --notes-file RELEASE_NOTES_v0.1.0.md
