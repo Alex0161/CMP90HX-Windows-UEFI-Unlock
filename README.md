@@ -218,6 +218,24 @@ build/NVPermissiveEFI.efi
 
 See [SOURCES_AND_LICENSES_RU_EN.md](SOURCES_AND_LICENSES_RU_EN.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## Source archive / Архив исходников
+
+The complete source snapshot used for this tested build is stored as:
+
+`source/CMP90HX_source_only.zip`
+
+It contains the wrapper sources, headers, Makefile, verification tools, tests,
+the GPU4-identical patch, and the original Russian notes. The external
+`nvpermissive-core.o` is intentionally not included.
+
+Полный снимок исходников, использованный для этой проверенной сборки, находится в:
+
+`source/CMP90HX_source_only.zip`
+
+В архиве находятся исходники оболочки, заголовки, Makefile, инструменты проверки,
+тесты, patch для одинаковой обработки GPU4 и исходные русские заметки. Внешний
+`nvpermissive-core.o` намеренно не включён.
+
 ## Status
 
 This repository is experimental hardware research. Use at your own risk. UEFI/PCIe reset operations can hang or reboot some platforms.
