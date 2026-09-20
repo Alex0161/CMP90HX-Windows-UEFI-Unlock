@@ -1,0 +1,2 @@
+8efc4df0d0344d78af3479b2612b9f4ede9dffe0b239e23c09eebbd26132bef0  tested BOOTX64.EFI (not redistributed here)
+c9702b4887d397272f86dcc25eea2bb11a46d636c91311d7b71f2fb8b01951e5  original-v2-core build input (not redistributed here)
