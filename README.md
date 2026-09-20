@@ -218,23 +218,29 @@ build/NVPermissiveEFI.efi
 
 See [SOURCES_AND_LICENSES_RU_EN.md](SOURCES_AND_LICENSES_RU_EN.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Source archive / Архив исходников
+## Source tree / Исходники
 
-The complete source snapshot used for this tested build is stored as:
+The source is stored directly in the repository:
 
-`source/CMP90HX_source_only.zip`
+- `src/` — UEFI wrapper and ELF loader;
+- `include/` — minimal UEFI/ELF/core ABI headers;
+- `tools/` — core/EFI verification helpers;
+- `tests/` — ELF loader test;
+- `patches/` — development-history patch showing the GPU4 identical-path change;
+- `vendor/` — location for the externally supplied `nvpermissive-core.o`.
 
-It contains the wrapper sources, headers, Makefile, verification tools, tests,
-the GPU4-identical patch, and the original Russian notes. The external
-`nvpermissive-core.o` is intentionally not included.
+Build guides: [BUILDING_EN.md](BUILDING_EN.md) and [BUILDING_RU.md](BUILDING_RU.md).
 
-Полный снимок исходников, использованный для этой проверенной сборки, находится в:
+Исходники теперь находятся непосредственно в репозитории:
 
-`source/CMP90HX_source_only.zip`
+- `src/` — UEFI-оболочка и ELF loader;
+- `include/` — минимальные UEFI/ELF/core ABI заголовки;
+- `tools/` — инструменты проверки core/EFI;
+- `tests/` — тест ELF loader;
+- `patches/` — patch истории разработки с переводом GPU4 на одинаковый путь;
+- `vendor/` — место для внешнего `nvpermissive-core.o`.
 
-В архиве находятся исходники оболочки, заголовки, Makefile, инструменты проверки,
-тесты, patch для одинаковой обработки GPU4 и исходные русские заметки. Внешний
-`nvpermissive-core.o` намеренно не включён.
+Инструкции по сборке: [BUILDING_RU.md](BUILDING_RU.md) и [BUILDING_EN.md](BUILDING_EN.md).
 
 ## Status
 
