@@ -1,0 +1,133 @@
+--- /mnt/data/cmp90_manual/src/main.c	2026-09-20 18:45:46.056182165 +0000
++++ /mnt/data/cmp90_manual_all_v2/src/main.c	2026-09-20 18:48:16.933643354 +0000
+@@ -47,8 +47,6 @@
+ 
+ extern const UINT8 _binary_nvpermissive_core_o_start[];
+ extern const UINT8 _binary_nvpermissive_core_o_end[];
+-extern const UINT8 _binary_nvpermissive_core_alias_o_start[];
+-extern const UINT8 _binary_nvpermissive_core_alias_o_end[];
+ 
+ static EFI_SYSTEM_TABLE *g_system_table;
+ static EFI_BOOT_SERVICES *g_boot_services;
+@@ -1171,8 +1169,6 @@
+ static int run_one(struct core_image *core, struct gpu_dev *gpu, int mode,
+                    const char *name, int reset_after)
+ {
+-    struct platform_gpu *platform =
+-        (struct platform_gpu *)gpu->platform_data;
+     int result;
+ 
+     console_printf("\n== %s ==\n", name);
+@@ -1182,26 +1178,9 @@
+         return result;
+     }
+ 
+-    if (reset_after) {
+-        /*
+-         * Real-hardware workaround for GPU4 only:
+-         * bridge 0000:20:07.0 reboots the whole platform when any
+-         * post-unlock SBR is issued.  The initial clean-session dual SBR
+-         * still runs before compute in run_requested(); only the resets
+-         * AFTER successful compute/graphics are skipped on GPU4.
+-         */
+-        if (platform && platform->index == 3U) {
+-            console_printf(
+-                "%s complete; GPU4 post-stage SBR SKIPPED "
+-                "(v2W-G4-NOSBR fix)\n", name);
+-            console_write(
+-                "GPU4: preserving unlocked state; no bridge reset "
+-                "after successful stage.\n");
+-        } else if (dual_sbr(gpu)) {
+-            console_printf(
+-                "%s completed, but required dual SBR failed\n", name);
+-            return -1;
+-        }
++    if (reset_after && dual_sbr(gpu)) {
++        console_printf("%s completed, but required dual SBR failed\n", name);
++        return -1;
+     }
+ 
+     console_printf("%s complete\n", name);
+@@ -1354,9 +1333,7 @@
+     struct platform_gpu platforms[MAX_CMP_GPUS];
+     struct gpu_dev gpus[MAX_CMP_GPUS];
+     struct core_image core;
+-    struct core_image alias_core;
+     EFI_STATUS core_status;
+-    EFI_STATUS alias_core_status;
+     int matches;
+     int state[4] = {0, 0, 0, 0};
+     UINTN i;
+@@ -1369,11 +1346,10 @@
+     memset(platforms, 0, sizeof(platforms));
+     memset(gpus, 0, sizeof(gpus));
+     memset(&core, 0, sizeof(core));
+-    memset(&alias_core, 0, sizeof(alias_core));
+ 
+-    console_write("CMP90HX MANUAL-4 v1 / UEFI\n");
++    console_write("CMP90HX MANUAL-4 ALL-V2 / UEFI\n");
+     console_write("Manual one-GPU-at-a-time mode. Windows NEVER starts automatically.\n");
+-    console_write("GPU1-3: original v2 core. GPU4: CPUCTL_ALIAS core, no post-stage SBR.\n\n");
++    console_write("GPU1-GPU4: identical original v2 core and identical dual-SBR path.\n\n");
+ 
+     matches = find_cmp90hx(platforms, ARRAY_SIZE(platforms));
+     if (matches != 4) {
+@@ -1431,18 +1407,6 @@
+         manual_halt();
+     }
+ 
+-    alias_core_status = load_nvpermissive_core(
+-        g_boot_services,
+-        _binary_nvpermissive_core_alias_o_start,
+-        (UINTN)(_binary_nvpermissive_core_alias_o_end -
+-                _binary_nvpermissive_core_alias_o_start),
+-        &alias_core);
+-    if (EFI_ERROR(alias_core_status)) {
+-        console_printf("GPU4 alias core load failed: 0x%llx\n",
+-                       (unsigned long long)alias_core_status);
+-        manual_halt();
+-    }
+-
+     for (i = 0; i < 4U; i++) {
+         struct gpu_dev *gpu = &gpus[i];
+         struct platform_gpu *platform = &platforms[i];
+@@ -1471,14 +1435,13 @@
+         CHAR16 key;
+         UINTN target;
+         int result;
+-        struct core_image *selected_core;
+ 
+         manual_print_state(state);
+         console_write("\nMANUAL MENU (no automatic Windows boot):\n");
+         console_write("  1  Unlock GPU1 only (original v2)\n");
+         console_write("  2  Unlock GPU2 only (original v2)\n");
+         console_write("  3  Unlock GPU3 only (original v2)\n");
+-        console_write("  4  Unlock GPU4 only (CPUCTL_ALIAS, no post-stage SBR)\n");
++        console_write("  4  Unlock GPU4 only (original v2, same as GPU1-3)\n");
+         console_write("  C  Check actual SS0/SS1/GFX state of all four GPUs\n");
+         console_write("  W  Manually start Windows (allowed only after actual 4/4 PASS)\n");
+         console_write("  H  Halt here\n");
+@@ -1490,21 +1453,16 @@
+ 
+         if (key >= '1' && key <= '4') {
+             target = (UINTN)(key - '1');
+-            selected_core = target == 3U ? &alias_core : &core;
+-
+             console_printf("\n========== MANUAL GPU%u: %04x:%02x:%02x.%u ==========\n",
+                            (unsigned)(target + 1U),
+                            platforms[target].gpu.segment,
+                            platforms[target].gpu.bus,
+                            platforms[target].gpu.device,
+                            platforms[target].gpu.function);
+-            if (target == 3U)
+-                console_write("GPU4 manual profile: CPUCTL_ALIAS core; post-compute/graphics SBR skipped.\n");
+-            else
+-                console_write("GPU manual profile: original v2 core.\n");
++            console_write("GPU manual profile: original v2 core; identical dual-SBR path for all GPUs.\n");
+ 
+             result = run_requested(REQUEST_WINDOWS_NO_GEN2,
+-                                   selected_core, &gpus[target]);
++                                   &core, &gpus[target]);
+             state[target] = result ? -1 : 1;
+             console_printf("\nMANUAL GPU%u RESULT: %s (%d)\n",
+                            (unsigned)(target + 1U),
