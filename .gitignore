@@ -1,0 +1,7 @@
+build/
+vendor/nvpermissive-core.o
+*.o
+*.efi
+*.zip
+.DS_Store
+Thumbs.db
