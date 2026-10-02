@@ -928,7 +928,7 @@ static int set_gen2_target_and_retrain(struct gpu_dev *gpu,
     UINT16 bridge_status = 0;
     UINT16 gpu_width_before;
     UINT16 bridge_width_before;
-    UINTN attempt;
+    UINTN round;
 
     if (EFI_ERROR(pci_read(&platform->gpu,
                            gpu_capability + PCIE_LNKSTA_OFFSET,
@@ -982,45 +982,61 @@ static int set_gen2_target_and_retrain(struct gpu_dev *gpu,
 
     gpu_log(gpu, "pcie-gen2: Target=Gen2 GPU LnkCtl2=0x%04x "
             "RP LnkCtl2=0x%04x\n", gpu_ctl2, bridge_ctl2);
-    if (EFI_ERROR(pci_read(&platform->bridge,
-                           bridge_capability + PCIE_LNKCTL_OFFSET,
-                           EfiPciWidthUint16, &bridge_ctl)))
-        return -1;
-    bridge_ctl |= PCIE_LINK_RETRAIN;
-    if (EFI_ERROR(pci_write(&platform->bridge,
-                            bridge_capability + PCIE_LNKCTL_OFFSET,
-                            EfiPciWidthUint16, &bridge_ctl)))
-        return -1;
 
-    for (attempt = 0; attempt < PCIE_GEN2_RETRAIN_ATTEMPTS; attempt++) {
-        g_boot_services->Stall(PCIE_GEN2_RETRAIN_DELAY_MS * 1000U);
-        if (EFI_ERROR(pci_read(&platform->gpu,
-                               gpu_capability + PCIE_LNKSTA_OFFSET,
-                               EfiPciWidthUint16, &gpu_status)) ||
-            EFI_ERROR(pci_read(&platform->bridge,                               bridge_capability + PCIE_LNKSTA_OFFSET,
-                               EfiPciWidthUint16, &bridge_status)))
-            continue;
-        if ((gpu_status & PCIE_LINK_SPEED_MASK) == PCIE_LINK_SPEED_GEN2 &&
-            (bridge_status & PCIE_LINK_SPEED_MASK) == PCIE_LINK_SPEED_GEN2 &&
-            ((gpu_status & PCIE_LINK_WIDTH_MASK) >>
-                PCIE_LINK_WIDTH_SHIFT) >= gpu_width_before &&
-            ((bridge_status & PCIE_LINK_WIDTH_MASK) >>
-                PCIE_LINK_WIDTH_SHIFT) >= bridge_width_before) {
-            gpu_log(gpu, "pcie-gen2: SUCCESS GPU=0x%04x Gen2 x%u "
-                    "RP=0x%04x Gen2 x%u attempt=%u\n",
-                    gpu_status,
-                    (gpu_status & PCIE_LINK_WIDTH_MASK) >>
-                        PCIE_LINK_WIDTH_SHIFT,
-                    bridge_status,
-                    (bridge_status & PCIE_LINK_WIDTH_MASK) >>
-                        PCIE_LINK_WIDTH_SHIFT,
-                    (unsigned)attempt);
-            return 0;
+    /*
+     * Linux hardware testing showed that one Retrain-Link toggle can lose
+     * a race against RM/GSP. Re-assert RL for up to five rounds and poll
+     * four seconds per round before declaring failure.
+     */
+    for (round = 0; round < 5U; round++) {
+        UINTN poll;
+
+        if (EFI_ERROR(pci_read(&platform->bridge,
+                               bridge_capability + PCIE_LNKCTL_OFFSET,
+                               EfiPciWidthUint16, &bridge_ctl)))
+            return -1;
+        bridge_ctl |= PCIE_LINK_RETRAIN;
+        if (EFI_ERROR(pci_write(&platform->bridge,
+                                bridge_capability + PCIE_LNKCTL_OFFSET,
+                                EfiPciWidthUint16, &bridge_ctl)))
+            return -1;
+
+        for (poll = 0; poll < 40U; poll++) {
+            g_boot_services->Stall(PCIE_GEN2_RETRAIN_DELAY_MS * 1000U);
+            if (EFI_ERROR(pci_read(&platform->gpu,
+                                   gpu_capability + PCIE_LNKSTA_OFFSET,
+                                   EfiPciWidthUint16, &gpu_status)) ||
+                EFI_ERROR(pci_read(&platform->bridge,
+                                   bridge_capability + PCIE_LNKSTA_OFFSET,
+                                   EfiPciWidthUint16, &bridge_status)))
+                continue;
+
+            if ((gpu_status & PCIE_LINK_SPEED_MASK) == PCIE_LINK_SPEED_GEN2 &&
+                (bridge_status & PCIE_LINK_SPEED_MASK) == PCIE_LINK_SPEED_GEN2 &&
+                ((gpu_status & PCIE_LINK_WIDTH_MASK) >>
+                    PCIE_LINK_WIDTH_SHIFT) >= gpu_width_before &&
+                ((bridge_status & PCIE_LINK_WIDTH_MASK) >>
+                    PCIE_LINK_WIDTH_SHIFT) >= bridge_width_before) {
+                gpu_log(gpu, "pcie-gen2: SUCCESS GPU=0x%04x Gen2 x%u "
+                        "RP=0x%04x Gen2 x%u round=%u poll=%u\n",
+                        gpu_status,
+                        (gpu_status & PCIE_LINK_WIDTH_MASK) >>
+                            PCIE_LINK_WIDTH_SHIFT,
+                        bridge_status,
+                        (bridge_status & PCIE_LINK_WIDTH_MASK) >>
+                            PCIE_LINK_WIDTH_SHIFT,
+                        (unsigned)(round + 1U), (unsigned)(poll + 1U));
+                return 0;
+            }
         }
+
+        gpu_log(gpu, "pcie-gen2: retrain round %u still not Gen2 "
+                "GPU=0x%04x RP=0x%04x; reasserting RL\n",
+                (unsigned)(round + 1U), gpu_status, bridge_status);
     }
 
-    gpu_log(gpu, "pcie-gen2: retrain failed GPU=0x%04x RP=0x%04x\n",
-            gpu_status, bridge_status);
+    gpu_log(gpu, "pcie-gen2: retrain failed after 5 rounds "
+            "GPU=0x%04x RP=0x%04x\n", gpu_status, bridge_status);
     return -1;
 }
 
@@ -1316,6 +1332,41 @@ static int manual_check_all(struct gpu_dev gpus[4], int state[4])
     return all_ok ? 0 : -1;
 }
 
+static int manual_gen2_all(struct core_image *core,
+                           struct gpu_dev gpus[4],
+                           int state[4])
+{
+    UINTN i;
+    int failed = 0;
+
+    if (manual_check_all(gpus, state)) {
+        console_write("\nGEN2 NOT STARTED: unlock state is not 4/4 PASS.\n");
+        return -1;
+    }
+
+    console_write("\n========== EXPERIMENTAL PCIe GEN2 PASS ==========\n");
+    console_write("Each unlocked CMP is processed separately. Windows is not started.\n");
+
+    for (i = 0; i < 4U; i++) {
+        int rc;
+        console_printf("\n---- GEN2 GPU%u ----\n", (unsigned)(i + 1U));
+        rc = run_pcie_gen2(core, &gpus[i]);
+        if (!rc)
+            rc = verify_windows_unlock_state(&gpus[i]);
+        console_printf("GEN2 GPU%u RESULT: %s (%d)\n",
+                       (unsigned)(i + 1U), rc ? "FAIL" : "PASS", rc);
+        if (rc)
+            failed = 1;
+    }
+
+    if (manual_check_all(gpus, state))
+        failed = 1;
+
+    console_printf("\nGEN2 PASS RESULT: %s\n",
+                   failed ? "ONE OR MORE FAILURES" : "ALL FOUR COMPLETED");
+    return failed ? -1 : 0;
+}
+
 static void manual_halt(void)
 {
     console_write("\nMANUAL HALT. Power off when ready.\n");
@@ -1442,6 +1493,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
         console_write("  3  Unlock GPU3 only (original v2)\n");
         console_write("  4  Unlock GPU4 only (original v2, same as GPU1-3)\n");
         console_write("  C  Check actual SS0/SS1/GFX state of all four GPUs\n");
+        console_write("  G  EXPERIMENTAL: PCIe Gen2 pass on all four unlocked GPUs\n");
         console_write("  W  Manually start Windows (allowed only after actual 4/4 PASS)\n");
         console_write("  H  Halt here\n");
         console_write("Press key: ");
@@ -1475,6 +1527,11 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
             continue;
         }
 
+        if (key == 'G') {
+            manual_gen2_all(&core, gpus, state);
+            continue;
+        }
+
         if (key == 'W') {
             EFI_STATUS boot_status;
             if (manual_check_all(gpus, state)) {
@@ -1494,6 +1551,6 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
         if (key == 'H')
             manual_halt();
 
-        console_write("Unknown key. Use 1,2,3,4,C,W,H.\n");
+        console_write("Unknown key. Use 1,2,3,4,C,G,W,H.\n");
     }
 }
