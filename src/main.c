@@ -1332,6 +1332,33 @@ static int manual_check_all(struct gpu_dev gpus[4], int state[4])
     return all_ok ? 0 : -1;
 }
 
+static int manual_gen2_one(struct core_image *core,
+                           struct gpu_dev gpus[4],
+                           int state[4],
+                           UINTN index)
+{
+    int rc;
+
+    if (index >= 4U)
+        return -1;
+    if (verify_windows_unlock_state(&gpus[index])) {
+        state[index] = -1;
+        console_printf("\nGEN2 GPU%u NOT STARTED: unlock state is not PASS.\n",
+                       (unsigned)(index + 1U));
+        return -1;
+    }
+
+    console_printf("\n========== EXPERIMENTAL GEN2 GPU%u ==========\n",
+                   (unsigned)(index + 1U));
+    rc = run_pcie_gen2(core, &gpus[index]);
+    if (!rc)
+        rc = verify_windows_unlock_state(&gpus[index]);
+    state[index] = rc ? -1 : 1;
+    console_printf("GEN2 GPU%u RESULT: %s (%d)\n",
+                   (unsigned)(index + 1U), rc ? "FAIL" : "PASS", rc);
+    return rc;
+}
+
 static int manual_gen2_all(struct core_image *core,
                            struct gpu_dev gpus[4],
                            int state[4])
@@ -1492,6 +1519,10 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
         console_write("  2  Unlock GPU2 only (original v2)\n");
         console_write("  3  Unlock GPU3 only (original v2)\n");
         console_write("  4  Unlock GPU4 only (original v2, same as GPU1-3)\n");
+        console_write("  5  EXPERIMENTAL: PCIe Gen2 GPU1 only\n");
+        console_write("  6  EXPERIMENTAL: PCIe Gen2 GPU2 only\n");
+        console_write("  7  EXPERIMENTAL: PCIe Gen2 GPU3 only\n");
+        console_write("  8  EXPERIMENTAL: PCIe Gen2 GPU4 only\n");
         console_write("  C  Check actual SS0/SS1/GFX state of all four GPUs\n");
         console_write("  G  EXPERIMENTAL: PCIe Gen2 pass on all four unlocked GPUs\n");
         console_write("  W  Manually start Windows (allowed only after actual 4/4 PASS)\n");
@@ -1519,6 +1550,12 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
                            (unsigned)(target + 1U),
                            result ? "FAIL" : "PASS", result);
             console_write("Returning to manual menu WITHOUT reboot.\n");
+            continue;
+        }
+
+        if (key >= '5' && key <= '8') {
+            target = (UINTN)(key - '5');
+            manual_gen2_one(&core, gpus, state, target);
             continue;
         }
 
@@ -1551,6 +1588,6 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
         if (key == 'H')
             manual_halt();
 
-        console_write("Unknown key. Use 1,2,3,4,C,G,W,H.\n");
+        console_write("Unknown key. Use 1,2,3,4,5,6,7,8,C,G,W,H.\n");
     }
 }
